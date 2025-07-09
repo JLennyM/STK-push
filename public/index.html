@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JT Mini Mart | M-PESA STK Push</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f1f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .container {
+      background: white;
+      padding: 2rem;
+      border-radius: 10px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 1rem;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 0.75rem;
+      margin: 0.6rem 0;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 1rem;
+    }
+
+    button {
+      background-color: #28a745;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #218838;
+    }
+
+    .message {
+      text-align: center;
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+
+    .pending {
+      background-color: #fff3cd;
+      color: #856404;
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #28a745;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 10px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Pay with M-PESA</h2>
+    <form id="mpesa-form">
+      <input type="text" id="phone" placeholder="Phone (e.g. 0712345678)" required />
+      <input type="number" id="amount" placeholder="Amount" required min="1" />
+      <button type="submit">Initiate Payment</button>
+    </form>
+    <div id="spinner" class="spinner" style="display: none;"></div>
+    <div id="message" class="message"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById("mpesa-form");
+    const messageDiv = document.getElementById("message");
+    const spinner = document.getElementById("spinner");
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const phoneInput = document.getElementById("phone").value.trim();
+      const amount = document.getElementById("amount").value.trim();
+
+      //  Simple phone number validation
+     //  Accept both 07xxxxxxx and 01xxxxxxx
+const phonePattern = /^(07|01)\d{8}$/;
+if (!phonePattern.test(phoneInput)) {
+  showMessage("⚠️ Enter a valid Safaricom number (e.g. 0712345678 or 0101234567)", "error");
+  return;
+}
+
+
+      if (!amount || Number(amount) < 1) {
+        showMessage("⚠️ Enter a valid amount greater than 0", "error");
+        return;
+      }
+
+      showMessage("📡 Sending STK Push...", "pending");
+      spinner.style.display = "block";
+
+      try {
+        const res = await fetch("/stk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone: phoneInput, amount }),
+        });
+
+        const data = await res.json();
+        console.log("✅ STK Push Response:", data);
+
+        if (!data.CheckoutRequestID) {
+          spinner.style.display = "none";
+          showMessage("❌ STK Push failed to send!", "error");
+          return;
+        }
+
+        showMessage("📲 Prompt sent. Please complete payment on your phone...", "pending");
+
+        // ✅ Start polling immediately
+        let attempts = 0;
+        const maxAttempts = 15; // 15 * 2s = 30s
+
+        const poll = setInterval(async () => {
+          attempts++;
+
+          try {
+            const statusRes = await fetch(`/status/${data.CheckoutRequestID}`);
+            const statusData = await statusRes.json();
+            console.log("📊 Polled Status:", statusData);
+
+            if (statusData.status === "success") {
+              clearInterval(poll);
+              spinner.style.display = "none";
+              showMessage("✅ Payment Successful!", "success");
+            } else if (statusData.status === "failed") {
+              clearInterval(poll);
+              spinner.style.display = "none";
+              showMessage("❌ Payment Failed or Cancelled.", "error");
+            } else if (attempts >= maxAttempts) {
+              clearInterval(poll);
+              spinner.style.display = "none";
+              showMessage("⏳ Still pending. Please wait or check your phone.", "pending");
+            }
+          } catch (err) {
+            clearInterval(poll);
+            spinner.style.display = "none";
+            console.error("❌ Polling Error:", err);
+            showMessage("❌ Error checking payment status.", "error");
+          }
+        }, 2000); // ✅ Poll every 2 seconds
+
+      } catch (err) {
+        spinner.style.display = "none";
+        console.error("❌ STK Request Error:", err);
+        showMessage("❌ Network error or STK Push failed.", "error");
+      }
+    });
+
+    function showMessage(msg, type) {
+      messageDiv.textContent = msg;
+      messageDiv.className = `message ${type}`;
+    }
+  </script>
+</body>
+</html>
