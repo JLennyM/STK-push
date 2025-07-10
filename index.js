@@ -11,7 +11,7 @@ const port = process.env.PORT || 8000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
-app.use(express.static("public")); // Serve frontend
+app.use(express.static("public")); // Serve frontend if any
 
 // ✅ Connect to MongoDB
 mongoose
@@ -44,7 +44,11 @@ const generateToken = async (req, res, next) => {
   try {
     const response = await axios.get(
       "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
-      { headers: { Authorization: `Basic ${auth}` } }
+      {
+        headers: {
+          Authorization: `Basic ${auth}`,
+        },
+      }
     );
 
     req.token = response.data.access_token;
@@ -55,7 +59,7 @@ const generateToken = async (req, res, next) => {
   }
 };
 
-// ✅ STK Push Initiator (for Till)
+// ✅ STK Push Initiator (Paybill version)
 app.post("/stk", generateToken, async (req, res) => {
   try {
     const rawPhone = req.body.phone?.trim();
@@ -76,7 +80,7 @@ app.post("/stk", generateToken, async (req, res) => {
       .replace(/[-:TZ.]/g, "")
       .slice(0, 14);
 
-    const shortcode = process.env.MPESA_TILL;
+    const shortcode = process.env.MPESA_PAYBILL; // ✅ PAYBILL SHORTCODE
     const passkey = process.env.MPESA_PASSKEY;
     const password = Buffer.from(shortcode + passkey + timestamp).toString("base64");
 
@@ -84,14 +88,14 @@ app.post("/stk", generateToken, async (req, res) => {
       BusinessShortCode: shortcode,
       Password: password,
       Timestamp: timestamp,
-      TransactionType: "CustomerBuyGoodsOnline", // 🔁 BUY GOODS
+      TransactionType: "CustomerPayBillOnline", // ✅ Changed to Paybill
       Amount: amount,
       PartyA: phone,
       PartyB: shortcode,
       PhoneNumber: phone,
       CallBackURL: process.env.CALLBACK_URL,
-      AccountReference: "JT Mini Mart",
-      TransactionDesc: "Buy Goods Payment",
+      AccountReference: phone, // can be your customer's account ID or phone
+      TransactionDesc: "Paybill Payment",
     };
 
     const response = await axios.post(
@@ -115,7 +119,7 @@ app.post("/stk", generateToken, async (req, res) => {
   }
 });
 
-// ✅ Callback from Safaricom
+// ✅ Callback Handler
 app.post("/callback", async (req, res) => {
   try {
     const callback = req.body?.Body?.stkCallback;
@@ -146,7 +150,7 @@ app.post("/callback", async (req, res) => {
   }
 });
 
-// ✅ Status Checker
+// ✅ Check Status Endpoint
 app.get("/status/:id", (req, res) => {
   const id = req.params.id;
   const status = paymentStatus[id];
@@ -156,7 +160,7 @@ app.get("/status/:id", (req, res) => {
 
 // ✅ Health check
 app.get("/", (req, res) => {
-  res.send("<h1>✅ JT Mini Mart MPESA TILL STK Integration Running</h1>");
+  res.send("<h1>✅ JT Mini Mart MPESA PAYBILL STK Integration Running</h1>");
 });
 
 // ✅ Start server
